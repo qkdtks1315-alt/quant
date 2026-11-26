@@ -23,3 +23,6 @@ data/*.parquet
 
 # OS
 .DS_Store
+
+# Backtesting results
+optimization_results.csv

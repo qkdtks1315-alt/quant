@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
+from itertools import product # step 2
 def backtest(
         df,
         buy_threshold=0.03,
@@ -75,6 +75,57 @@ def calculate_metrics(wealth):
 
     return total_return, cagr, mdd, sharpe
 
+def optimize_strategy(df): # 2
+
+    buy_thresholds = np.arange(1, 11) / 100
+    sell_thresholds = np.arange(1, 11) / 100
+
+    buy_fractions = np.arange(1, 11) / 10
+    sell_fractions = np.arange(1, 11) / 10
+
+    records = []
+
+    combinations = product(
+        buy_thresholds,
+        sell_thresholds,
+        buy_fractions,
+        sell_fractions
+    )
+
+    for i, (a, b , fb, fs) in enumerate(combinations):
+
+        result = backtest(
+            df,
+            buy_threshold=a,
+            sell_threshold=b,
+            buy_fraction=fb,
+            sell_fraction=fs
+        )
+
+        total_return, cagr, mdd, sharpe = \
+            calculate_metrics(result['wealth'])
+
+        records.append({
+            'buy_threshold': a,
+            'sell_threshold': b,
+            'buy_fraction': fb,
+            'sell_fraction': fs,
+            'total_return': total_return,
+            'cagr': cagr,
+            'mdd': mdd,
+            'sharpe': sharpe
+        })
+
+        if (i + 1) % 1000 == 0:
+            print(f'Progress: {i+1}/10000')
+
+    result = pd.DataFrame(records)
+
+    return result.sort_values(
+        'cagr',
+        ascending=False
+    ).reset_index(drop=True)
+
 def main():
 
     df = pd.read_csv(
@@ -88,6 +139,73 @@ def main():
     df['deviation'] = (df['종가'] / df['ma20'] - 1)
 
     df = df.dropna()
+
+    # 2 Train - test split
+    split = int(len(df) * 0.7)
+
+    train = df.iloc[:split]
+    test = df.iloc[split:]
+
+    print('\n=== Training Period ===')
+    print(train.index[0], '~', train.index[-1])
+
+    print('\n=== Test Period ===')
+    print(test.index[0], '~', test.index[-1])
+
+    # Grid search
+    optimization = optimize_strategy(train)
+
+    print('\n=== Top 10 Strategies ===')
+    print(optimization.head(10).to_string(index=False))
+
+    optimization.to_csv(
+        'optimization_results.csv', index=False
+    )
+
+    best = optimization.iloc[0]
+
+    print('\n=== OPtimal Parameters ===')
+    print(f'Buy threshold: {best['buy_threshold']:.2%}')
+    print(f'Sell threshold: {best['sell_threshold']:.2%}')
+    print(f'Buy fraction: {best['buy_fraction']:.2%}')
+    print(f'Sell fraction: {best['sell_fraction']:.2%}')
+
+    # Out-of-sample backtest
+    test_result = backtest(
+        test,
+        buy_threshold=best['buy_threshold'],
+        sell_threshold=best['sell_threshold'],
+        buy_fraction=best['buy_fraction'],
+        sell_fraction=best['sell_fraction']
+    )
+
+    metrics = calculate_metrics(test_result['wealth'])
+
+    print('\n=== Optimized Strategy: Test ===')
+    print(f'Total return: {metrics[0]:.2%}')
+    print(f'CAGR: {metrics[1]:.2%}')
+    print(f'MDD: {metrics[2]:.2%}')
+    print(f'Shape ratio: {metrics[3]:.3f}')
+
+
+    test_benchmarck = (10_000_000 * test['종가'] / test['종가'].iloc[0])
+
+    metrics = calculate_metrics(test_benchmarck)
+    
+    print('\n=== Buy and Hold ===')
+    print(f'Total return: {metrics[0]:.2%}')
+    print(f'CAGR: {metrics[1]:.2%}')
+    print(f'MDD: {metrics[2]:.2%}')
+    print(f'Shape ratio: {metrics[3]:.3f}')
+    
+    plt.figure(figsize=(12,5))
+    plt.plot(result['wealth'], label='Mean Reversion')
+    plt.plot(benchmark, label='Buy and Hold')
+    plt.ylabel('Portfolio Value (KRW)')
+    plt.legend()
+    plt.grid()
+    plt.tight_layout()
+    plt.show()
 
     result = backtest(df)
 
